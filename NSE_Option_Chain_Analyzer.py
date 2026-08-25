@@ -5,29 +5,29 @@ import os
 import platform
 import sys
 import time
+import warnings
 import webbrowser
 from tkinter import Tk, Toplevel, Event, TclError, StringVar, Frame, Menu, Label, Entry, SOLID, RIDGE, \
     DISABLED, NORMAL, N, S, E, W, LEFT, messagebox, PhotoImage
 from tkinter.ttk import Combobox, Button
 from typing import Union, Optional, List, Dict, Tuple, TextIO, Any
 
-import bs4
+warnings.simplefilter(action='ignore', category=FutureWarning)
 import pandas
 import requests
 import streamtologger
 import tksheet
 
 is_windows: bool = platform.system() == "Windows"
-is_windows_10: bool = is_windows and platform.release() == "10"
-if is_windows_10:
+is_windows_10_or_11: bool = is_windows and platform.release() == "10"
+if is_windows_10_or_11:
     # noinspection PyUnresolvedReferences
     import win10toast
 
 
 # noinspection PyAttributeOutsideInit
 class Nse:
-    version: str = '5.3'
-    beta: Tuple[bool, int] = (False, 0)
+    version: str = '5.8'
 
     def __init__(self, window: Tk) -> None:
         self.intervals: List[int] = [1, 2, 3, 5, 10, 15]
@@ -41,11 +41,13 @@ class Nse:
         self.dates: List[str] = [""]
         self.indices: List[str] = []
         self.stocks: List[str] = []
+        self.expiry_date: str = ""
         self.url_oc: str = "https://www.nseindia.com/option-chain"
-        self.url_index: str = "https://www.nseindia.com/api/option-chain-indices?symbol="
-        self.url_stock: str = "https://www.nseindia.com/api/option-chain-equities?symbol="
-        self.url_symbols: str = "https://www.nseindia.com/products-services/" \
-                                "equity-derivatives-list-underlyings-information"
+        self.url_index: str = "https://www.nseindia.com/api/option-chain-contract-info?symbol="
+        self.url_stock: str = "https://www.nseindia.com/api/option-chain-contract-info?symbol="
+        self.url_index_data: str = "https://www.nseindia.com/api/option-chain-v3?type=Indices&symbol={}&expiry={}"
+        self.url_stock_data: str = "https://www.nseindia.com/api/option-chain-v3?type=Equity&symbol={}&expiry={}"
+        self.url_symbols: str = "https://www.nseindia.com/api/underlying-information"
         self.url_icon_png: str = "https://raw.githubusercontent.com/VarunS2002/" \
                                  "Python-NSE-Option-Chain-Analyzer/master/nse_logo.png"
         self.url_icon_ico: str = "https://raw.githubusercontent.com/VarunS2002/" \
@@ -53,14 +55,17 @@ class Nse:
         self.url_update: str = "https://api.github.com/repos/VarunS2002/" \
                                "Python-NSE-Option-Chain-Analyzer/releases/latest"
         self.headers: Dict[str, str] = {
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, '
-                          'like Gecko) Chrome/80.0.3987.149 Safari/537.36',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+                          'Chrome/130.0.0.0 Safari/537.36',
             'accept-language': 'en,gu;q=0.9,hi;q=0.8',
-            'accept-encoding': 'gzip, deflate, br'}
+            'accept-encoding': 'gzip, deflate'}
+        self.session: requests.Session = requests.Session()
+        self.cookies: Dict[str, str] = {}
         self.get_symbols(window)
         self.config_parser: configparser.ConfigParser = configparser.ConfigParser()
         self.create_config(new=True) if not os.path.isfile('NSE-OCA.ini') else None
         self.get_config()
+        self.log_file: Optional[TextIO] = None
         self.log() if self.logging else None
         self.units_str: str = 'in K' if self.option_mode == 'Index' else 'in 10s'
         self.output_columns: Tuple[str, str, str, str, str, str, str, str, str] = (
@@ -71,9 +76,7 @@ class Nse:
             'Time', 'Value', f'Call Sum ({self.units_str})', f'Put Sum ({self.units_str})',
             f'Difference ({self.units_str})',
             f'Call Boundary ({self.units_str})', f'Put Boundary ({self.units_str})', 'Call ITM', 'Put ITM')
-        self.session: requests.Session = requests.Session()
-        self.cookies: Dict[str, str] = {}
-        self.toaster: win10toast.ToastNotifier = win10toast.ToastNotifier() if is_windows_10 else None
+        self.toaster: win10toast.ToastNotifier = win10toast.ToastNotifier() if is_windows_10_or_11 else None
         self.get_icon()
         self.login_win(window)
 
@@ -89,41 +92,23 @@ class Nse:
             error_window.destroy()
 
         try:
-            symbols_information: requests.Response = requests.get(self.url_symbols, headers=self.headers)
+            request: requests.Response = self.session.get(self.url_oc, headers=self.headers, timeout=5)
+            self.cookies = dict(request.cookies)
+            response: requests.Response = self.session.get(self.url_symbols, headers=self.headers, timeout=5,
+                                                           cookies=self.cookies)
         except Exception as err:
             print(err, sys.exc_info()[0], "19")
             create_error_window(window)
             sys.exit()
-        symbols_information_soup: bs4.BeautifulSoup = bs4.BeautifulSoup(symbols_information.content, "html.parser")
         try:
-            symbols_table: bs4.element.Tag = symbols_information_soup.findChildren('table')[0]
-        except IndexError as err:
+            json_data: Dict[str, Dict[str, List[Dict[str, Union[str, int]]]]] = response.json()
+        except Exception as err:
+            print(response)
             print(err, sys.exc_info()[0], "20")
             create_error_window(window)
             sys.exit()
-        symbols_table_rows: List[bs4.element.Tag] = list(symbols_table.findChildren(['th', 'tr']))
-        symbols_table_rows_str: List[str] = ['' for _ in range(len(symbols_table_rows) - 1)]
-        for column in range(len(symbols_table_rows) - 1):
-            symbols_table_rows_str[column] = str(symbols_table_rows[column])
-        divider_row: str = '<tr>\n' \
-                           '<td colspan="3"><strong>Derivatives on Individual Securities</strong></td>\n' \
-                           '</tr>'
-        for column in range(4, symbols_table_rows_str.index(divider_row) + 1):
-            cells: bs4.element.ResultSet = symbols_table_rows[column].findChildren('td')
-            column: int = 0
-            for cell in cells:
-                if column == 2:
-                    self.indices.append(cell.string)
-                column += 1
-        for column in reversed(range(symbols_table_rows_str.index(divider_row) + 1)):
-            symbols_table_rows.pop(column)
-        for row in symbols_table_rows:
-            cells: bs4.element.ResultSet = row.findChildren('td')
-            column: int = 0
-            for cell in cells:
-                if column == 2:
-                    self.stocks.append(cell.string)
-                column += 1
+        self.indices = [item['symbol'] for item in json_data['data']['IndexList']]
+        self.stocks = [item['symbol'] for item in json_data['data']['UnderlyingList']]
 
     def get_icon(self) -> None:
         self.icon_png_path: str
@@ -147,7 +132,7 @@ class Nse:
                     print(err, sys.exc_info()[0], "17")
                     self.load_nse_icon = False
                     return
-                if is_windows_10:
+                if is_windows_10_or_11:
                     try:
                         icon_ico_raw: requests.Response = requests.get(self.url_icon_ico,
                                                                        headers=self.headers, stream=True)
@@ -164,7 +149,6 @@ class Nse:
         try:
             release_data: requests.Response = requests.get(self.url_update, headers=self.headers, timeout=5)
             latest_version: str = release_data.json()['tag_name']
-            float(latest_version)
         except Exception as err:
             print(err, sys.exc_info()[0], "21")
             if not auto:
@@ -248,12 +232,12 @@ class Nse:
                 self.save_oc: bool = self.config_parser.getboolean('main', 'save_oc')
             try:
                 self.notifications: bool = self.config_parser.getboolean('main', 'notifications') \
-                    if is_windows_10 else False
+                    if is_windows_10_or_11 else False
             except (configparser.NoOptionError, ValueError) as err:
                 print(err, sys.exc_info()[0], "0")
                 self.create_config(attribute="notifications")
                 self.notifications: bool = self.config_parser.getboolean('main', 'notifications') \
-                    if is_windows_10 else False
+                    if is_windows_10_or_11 else False
             try:
                 self.auto_stop: bool = self.config_parser.getboolean('main', 'auto_stop')
             except (configparser.NoOptionError, ValueError) as err:
@@ -332,7 +316,6 @@ class Nse:
             return self.get_data_refresh()
 
     def get_data_first_run(self) -> Optional[Tuple[Optional[requests.Response], Any]]:
-        request: Optional[requests.Response] = None
         response: Optional[requests.Response] = None
         self.units_str = 'in K' if self.option_mode == 'Index' else 'in 10s'
         self.output_columns: Tuple[str, str, str, str, str, str, str, str, str] = (
@@ -354,12 +337,12 @@ class Nse:
             self.config_parser.write(f)
 
         url: str = self.url_index + self.index if self.option_mode == 'Index' else self.url_stock + self.stock
+        if self.expiry_date != "":
+            url: str = self.url_index_data.format(self.index, self.expiry_date) if self.option_mode == 'Index' \
+                else self.url_stock_data.format(self.stock, self.expiry_date)
         try:
-            request = self.session.get(self.url_oc, headers=self.headers, timeout=5)
-            self.cookies = dict(request.cookies)
             response = self.session.get(url, headers=self.headers, timeout=5, cookies=self.cookies)
         except Exception as err:
-            print(request)
             print(response)
             print(err, sys.exc_info()[0], "1")
             messagebox.showerror(title="Error", message="Error in fetching dates.\nPlease retry.")
@@ -368,7 +351,7 @@ class Nse:
             self.date_menu.config(values=tuple(self.dates))
             self.date_menu.current(0)
             return
-        json_data: Any
+        json_data: Dict[str, Any]
         if response is not None:
             try:
                 json_data = response.json()
@@ -389,7 +372,9 @@ class Nse:
                 print(err, sys.exc_info()[0], "3")
             return
         self.dates.clear()
-        for dates in json_data['records']['expiryDates']:
+        expiry_dates_list: List[str] = json_data['expiryDates'] if 'expiryDates' in json_data \
+            else json_data['records']['expiryDates']
+        for dates in expiry_dates_list:
             self.dates.append(dates)
         try:
             self.date_menu.config(values=tuple(self.dates))
@@ -402,7 +387,8 @@ class Nse:
     def get_data_refresh(self) -> Optional[Tuple[Optional[requests.Response], Any]]:
         request: Optional[requests.Response] = None
         response: Optional[requests.Response] = None
-        url: str = self.url_index + self.index if self.option_mode == 'Index' else self.url_stock + self.stock
+        url: str = self.url_index_data.format(self.index, self.expiry_date) if self.option_mode == 'Index' \
+            else self.url_stock_data.format(self.stock, self.expiry_date)
         try:
             response = self.session.get(url, headers=self.headers, timeout=5, cookies=self.cookies)
             if response.status_code == 401:
@@ -464,7 +450,7 @@ class Nse:
         self.login.columnconfigure(2, weight=1)
 
         self.intervals_var: StringVar = StringVar()
-        self.intervals_var.set(self.intervals[0])
+        self.intervals_var.set(str(self.intervals[0]))
         self.index_var: StringVar = StringVar()
         self.index_var.set(self.indices[0])
         self.stock_var: StringVar = StringVar()
@@ -505,7 +491,8 @@ class Nse:
         intervals_label: Label = Label(self.login, text="Refresh Interval (in min): ", justify=LEFT)
         intervals_label.grid(row=5, column=0, sticky=N + S + W)
         self.intervals_menu: Combobox = Combobox(self.login, textvariable=self.intervals_var,
-                                                 values=tuple(self.intervals), state="readonly")
+                                                 values=[str(interval) for interval in self.intervals],
+                                                 state="readonly")
         self.intervals_menu.config(width=15)
         self.intervals_menu.grid(row=5, column=1, sticky=N + S + E)
         self.intervals_menu.current(self.intervals.index(int(self.seconds / 60)))
@@ -540,7 +527,6 @@ class Nse:
             self.option_mode_btn.config(text='Index')
             self.index_menu.config(state='readonly')
             self.stock_menu.config(state=DISABLED)
-
         self.get_data()
 
         self.config_parser.set('main', 'option_mode', f'{self.option_mode}')
@@ -760,25 +746,24 @@ class Nse:
     # noinspection PyUnusedLocal
     def log(self, event: Optional[Event] = None) -> None:
         if self.first_run and self.logging or not self.logging:
-            streamtologger.redirect(target="NSE-OCA.log",
-                                    header_format="[{timestamp:%Y-%m-%d %H:%M:%S} - {level:5}] ")
+            try:
+                # noinspection PyProtectedMember,PyUnresolvedReferences
+                base_path: str = sys._MEIPASS
+                self.log_file = open('NSE-OCA.log', 'a', buffering=1)
+                sys.stdout = self.log_file
+                sys.stderr = self.log_file
+            except AttributeError:
+                streamtologger.redirect(target="NSE-OCA.log",
+                                        header_format="[{timestamp:%Y-%m-%d %H:%M:%S} - {level:5}] ")
             self.logging = True
             print('----------Logging Started----------')
 
             try:
                 # noinspection PyProtectedMember,PyUnresolvedReferences
                 base_path: str = sys._MEIPASS
-                print(platform.system() + ' ' + platform.release() + ' .exe version ' + Nse.version, end=' ')
-                if Nse.beta[0]:
-                    print(f"beta {Nse.beta[1]}")
-                else:
-                    print()
+                print(platform.system() + ' ' + platform.release() + ' .exe version ' + Nse.version)
             except AttributeError:
-                print(platform.system() + ' ' + platform.release() + ' .py version ' + Nse.version, end=' ')
-                if Nse.beta[0]:
-                    print(f"beta {Nse.beta[1]}")
-                else:
-                    print()
+                print(platform.system() + ' ' + platform.release() + ' .py version ' + Nse.version)
                 if not self.load_nse_icon:
                     print("NSE icon loading disabled")
 
@@ -792,7 +777,12 @@ class Nse:
             print('----------Logging Stopped----------')
             sys.stdout = self.stdout
             sys.stderr = self.stderr
-            streamtologger._is_redirected = False
+            try:
+                # noinspection PyProtectedMember,PyUnresolvedReferences
+                base_path: str = sys._MEIPASS
+                self.log_file.close()
+            except AttributeError:
+                streamtologger._is_redirected = False
             self.logging = False
             self.options.entryconfig(self.options.index(9), label="Debug Logging: Off")
             messagebox.showinfo(title="Debug Logging Disabled", message="Errors will not be logged.")
@@ -921,7 +911,7 @@ class Nse:
                                  accelerator="(Ctrl+O)", command=self.toggle_save_oc)
         self.options.add_command(label=f"Notifications: {'On' if self.notifications else 'Off'}",
                                  accelerator="(Ctrl+N)", command=self.toggle_notifications,
-                                 state=NORMAL if is_windows_10 else DISABLED)
+                                 state=NORMAL if is_windows_10_or_11 else DISABLED)
         self.options.add_command(label=f"Stop automatically at 3:30pm: {'On' if self.auto_stop else 'Off'}",
                                  accelerator="(Ctrl+K)", command=self.toggle_auto_stop)
         self.options.add_command(label=f"Warn Late Server Updates: {'On' if self.warn_late_update else 'Off'}",
@@ -940,7 +930,7 @@ class Nse:
         self.root.bind('<Control-s>', self.export)
         self.root.bind('<Control-b>', self.toggle_live_export)
         self.root.bind('<Control-o>', self.toggle_save_oc)
-        self.root.bind('<Control-n>', self.toggle_notifications) if is_windows_10 else None
+        self.root.bind('<Control-n>', self.toggle_notifications) if is_windows_10_or_11 else None
         self.root.bind('<Control-k>', self.toggle_auto_stop)
         self.root.bind('<Control-w>', self.toggle_warn_late_update)
         self.root.bind('<Control-u>', self.toggle_updates)
@@ -953,6 +943,7 @@ class Nse:
         top_frame.columnconfigure(0, weight=1)
         top_frame.pack(fill="both", expand=True)
 
+        # noinspection PyTypeChecker
         self.sheet: tksheet.Sheet = tksheet.Sheet(top_frame, column_width=85, align="center",
                                                   headers=self.output_columns, header_font=("TkDefaultFont", 9, "bold"),
                                                   empty_horizontal=0, empty_vertical=20, header_height=35)
@@ -1076,29 +1067,29 @@ class Nse:
         df = df.transpose()
 
         ce_values: List[dict] = [data['CE'] for data in json_data['records']['data'] if
-                                 "CE" in data and str(data['expiryDate'].lower() == str(self.expiry_date).lower())]
+                                 "CE" in data and data['expiryDates'].lower() == self.expiry_date.lower()]
         pe_values: List[dict] = [data['PE'] for data in json_data['records']['data'] if
-                                 "PE" in data and str(data['expiryDate'].lower() == str(self.expiry_date).lower())]
+                                 "PE" in data and data['expiryDates'].lower() == self.expiry_date.lower()]
         points: float = pe_values[0]['underlyingValue']
         if points == 0:
             for item in pe_values:
                 if item['underlyingValue'] != 0:
                     points = item['underlyingValue']
                     break
-        ce_data: pandas.DataFrame = pandas.DataFrame(ce_values)
-        pe_data: pandas.DataFrame = pandas.DataFrame(pe_values)
-        ce_data_f: pandas.DataFrame = ce_data.loc[ce_data['expiryDate'] == self.expiry_date]
-        pe_data_f: pandas.DataFrame = pe_data.loc[pe_data['expiryDate'] == self.expiry_date]
+        ce_data_f: pandas.DataFrame = pandas.DataFrame(ce_values)
+        pe_data_f: pandas.DataFrame = pandas.DataFrame(pe_values)
+
         if ce_data_f.empty:
             messagebox.showerror(title="Error",
                                  message="Invalid Expiry Date.\nPlease restart and enter a new Expiry Date.")
             self.change_state()
             return
         columns_ce: List[str] = ['openInterest', 'changeinOpenInterest', 'totalTradedVolume', 'impliedVolatility',
-                                 'lastPrice',
-                                 'change', 'bidQty', 'bidprice', 'askPrice', 'askQty', 'strikePrice']
-        columns_pe: List[str] = ['strikePrice', 'bidQty', 'bidprice', 'askPrice', 'askQty', 'change', 'lastPrice',
-                                 'impliedVolatility', 'totalTradedVolume', 'changeinOpenInterest', 'openInterest']
+                                 'lastPrice', 'change', 'buyQuantity1', 'buyPrice1', 'sellPrice1', 'sellQuantity1',
+                                 'strikePrice']
+        columns_pe: List[str] = ['strikePrice', 'buyQuantity1', 'buyPrice1', 'sellPrice1', 'sellQuantity1', 'change',
+                                 'lastPrice', 'impliedVolatility', 'totalTradedVolume', 'changeinOpenInterest',
+                                 'openInterest']
         ce_data_f = ce_data_f[columns_ce]
         pe_data_f = pe_data_f[columns_pe]
         merged_inner: pandas.DataFrame = pandas.merge(left=ce_data_f, right=pe_data_f, left_on='strikePrice',
@@ -1314,7 +1305,7 @@ class Nse:
                                                   self.put_sum, self.difference,
                                                   self.call_boundary, self.put_boundary, self.call_itm,
                                                   self.put_itm]
-        self.sheet.insert_row(values=output_values)
+        self.sheet.insert_row(values=output_values, add_columns=True)
         if self.live_export:
             self.export_row(output_values)
 

@@ -2,6 +2,105 @@
 
 <br>
 
+> # [5.8](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/releases/tag/5.8)
+
+## Bug Fix Update
+
+- Bug Fixes:
+    - Another attempt to fix crash likely caused by NSE Servers sending malformed data.
+      Thanks [@chettyrajesh](https://github.com/chettyrajesh/) for this workaround.
+      This is what causes the "Error in fetching dates.Please retry." error.
+      Issue: [#82](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/82)
+      , [#81](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/81)
+      , [#79](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/79)
+      , [#65](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/65)
+- Updated documentation:
+    - Added new contributor to the list
+
+<br>
+
+> # [5.7](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/releases/tag/5.7)
+
+## Bug Fix Update
+
+- Bug Fixes:
+    - Fixed crash caused by multiple changes in the API endpoints and response structures.
+      This is what causes the "Error in fetching dates.Please retry." error.
+      Issue: [#79](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/79)
+    - Fixed incorrect expiry dates being shown in the dropdown when you switch between Index and Stock mode
+- Code changes:
+    - Ignored pandas deprecation warning as the version in `requirements.txt` is capped
+- Executable changes:
+    - Updated some libraries bundled with the `.exe` file
+
+<br>
+
+> # [5.6](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/releases/tag/5.6)
+
+## Bug Fix Update
+
+- Bug Fixes:
+    - Fixed `JSONDecodeError` caused by the server now using a different encoding which requires the `brotli` package to
+      be to installed to be able to decode.
+      This is what causes the "Failed to fetch symbols. The program will exit now exit." error.
+      Issue: [#62](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/62)
+      , [#65](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/65)
+      , [#69](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/69)
+      , [#70](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/70)
+    - Fixed `TypeError` caused by breaking change in the newer versions of `tksheet`.
+      Issue: [#64](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/64)
+      , [#67](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/67)
+    - Fixed potential crash if you try to enable logging while running the `.exe` file
+- Code changes:
+    - Updated request headers
+    - Minor code improvements
+- Updated `requirements.txt`:
+    - Added `brotli` to library to support decoding data from NSE in the `br` encoding format
+    - Updated `requests` library version to exclude known vulnerable versions
+    - Updated `pandas` library version to prevent breaking changes in the future
+- Updated documentation:
+    - Added `brotli` in dependencies
+
+<br>
+
+> # [5.5](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/releases/tag/5.5)
+
+## Bug Fix Update
+
+- Fixed `IndexError` caused by NSE updating the method they use for loading symbols on their website.
+  Issue: [#54](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/54)
+  , [#55](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/55)
+  , [#56](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/56)
+- No longer uses the web scraping technique to load symbols
+    - Instead uses the API to load symbols as that is what the new NSE website uses
+    - Removed `beautifulsoup4` from `requirements.txt` as it is no longer required
+- Updated documentation:
+    - Removed `beautifulsoup4` from dependencies
+
+<br>
+
+> # [5.4](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/releases/tag/5.4)
+
+## Bug Fix Update
+
+- Fixed `IndexError` with tksheet versions `>=5.0.29`.
+  Issue: [#24](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/24)
+  , [#25](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/25)
+  , [#28](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/28)
+  , [#32](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/32)
+  and [#33](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/issues/33). Pull
+  Request: [#34](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/pull/34) (Thanks
+  to [@yjagota](https://github.com/yjagota/))
+- Fixed redundant code. Pull Request: [#19](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/pull/19)
+  (Thanks to [@QuickLearner171998](https://github.com/QuickLearner171998/))
+- Bumped dependencies to fix known vulnerabilities
+- Updated documentation:
+    - Added new contributors to the list
+    - Updated table formatting
+    - Fixed typos
+
+<br>
+
 > # [5.3](https://github.com/VarunS2002/Python-NSE-Option-Chain-Analyzer/releases/tag/5.3)
 
 ## Feature and Bug Fix Update
@@ -230,7 +329,7 @@
 
 - Now compatible with the new NSE website
 - Instead of scraping the data from the html the program now calculates the data from a json file which is also the
-  implementation of the new website (Thanks to @medknecth)
+  implementation of the new website (Thanks to [@medknecth](https://github.com/medknecth/))
 - Since the values on the new website display contracts instead of shares, the values in the program have been updated
   to display in thousands instead of lacs
 - Completely reworked the main code
